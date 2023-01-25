@@ -1,0 +1,99 @@
+{% extends "layout.html" %}
+
+{% block title %}
+Buy
+{% endblock %}
+
+{% block main %}
+<form action="/buy" method="post">
+    <div class="card start-50" style="width: 20rem;transform: translate(-50%,0%)!important;">
+        <div class="card-body">
+            <input autocomplete="off" autofocus class="form-control mx-auto" id="symbol" name="symbol"
+            {% if name!="None" %}
+            value="{{name}}"
+            {% endif %}
+                placeholder="Enter Symbol" type="text">
+            <div class="input-group mb-3" style="margin-top:5%">
+                <button class="btn btn-outline-secondary" onclick="getPrice()" type="button" id="button1">Get</button>
+                <input type="text" class="form-control mx-auto w-auto" id="price" autocomplete="off" autofocus
+                    placeholder="Price" aria-label="Price" aria-describedby="button-addon2" readonly>
+            </div>
+        </div>
+        <div class="card-body">
+            <input autocomplete="off" autofocus class="form-control mx-auto" id="quantity" name="shares"
+                placeholder="Enter Quantity" type="number" min="1" step="1">
+            <div class="input-group mb-3" style="margin-top:5%">
+                <button class="btn btn-outline-secondary" onclick="getAmount()" type="button" id="button2">Calc</button>
+                <input type="text" class="form-control mx-auto w-auto" id="amount" autocomplete="off" autofocus
+                    placeholder="Amount" aria-label="Amount" aria-describedby="button-addon2" readonly>
+            </div>
+        </div>
+        <ul class="list-group list-group-flush">
+            <li class="list-group-item"><b>Current balance: </b>{{cash}}</li>
+        </ul>
+        <div class="card-body">
+            <button type="submit" class="btn btn-primary">Buy these</button>
+        </div>
+    </div>
+</form>
+<script src="https://code.jquery.com/jquery-3.5.1.js"
+integrity="sha256-QWo7LDvxbWT2tbbQ97B53yJnYU3WhH/C8ycbRAkjPDc="
+crossorigin="anonymous"></script>
+<script>
+    function getPrice() {
+        let sym = document.getElementById("symbol").value;
+        let btn =document.getElementById("button1");
+        let price_box = document.getElementById("price");
+        $.ajax({
+                type: 'POST',
+                url: '/getprice',
+                data: {
+                    symbol: sym
+                },
+                success: function (v) {
+                    price_box.value = v;
+                }
+            })
+    }
+
+    function getAmount() {
+        let quan = document.getElementById("quantity");
+        let btn1 = document.getElementById("button2");
+        let amount = document.getElementById("amount");
+        let price = document.getElementById("price");
+        if (price.value == '' || price.value == 'Wrong Symbol'){
+            price.value = '';
+            price.placeholder = "Wrong Symbol";
+            return
+        }
+        if (quan.value == ''){
+            amount.value = '';
+            amount.placeholder = "Enter Quantity"
+            return
+        }
+        if (quan.value <= 0 || quan.value >=10000){
+            amount.value = '';
+            amount.placeholder = "Range is 1-9999"
+            return
+        }
+        if (quan.value%1.0 != 0){
+            amount.value = '';
+            amount.placeholder = "Only integers"
+            return
+        }
+        $.ajax({
+                type: 'POST',
+                url: '/getamount',
+                data: {
+                    price:price.value,
+                    quan:quan.value
+                },
+                success: function (v) {
+                    amount.value = v;
+                }
+            })
+    }
+</script>
+
+
+{% endblock %}

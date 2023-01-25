@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+
+{% block title %}
+Home
+{% endblock %}
+
+{% block main %}
+<h1 class="display-3">Welcome {{name}}</h1>
+<table class="table table-hover table-striped w-75 mx-auto">
+    <thead>
+      <tr>
+        <th scope="col">Symbol</th>
+        <th scope="col">Name</th>
+        <th scope="col">Shares</th>
+        <th scope="col">Price</th>
+        <th scope="col">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+        {% for row in data %}
+        <tr>
+          <th scope="row">{{row.symbol}}</th>
+          <td>{{row.name}}</td>
+          <td>{{row.quantity}}</td>
+          <td>{{row.price}}</td>
+          <td>{{row.amount}}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr>
+            <td class="border-0 fw-bold text-end" colspan="4">Cash</td>
+            <td class="border-0 text-end">{{cash}}</td>
+        </tr>
+        <tr>
+            <td class="border-0 fw-bold text-end" colspan="4">Total</td>
+            <td class="border-0 text-end">{{total}}</td>
+        </tr>
+    </tfoot>
+</table>
+{% endblock %}

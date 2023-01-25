@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+
+{% block title %}
+Quote
+{% endblock %}
+
+{% block main %}
+<div class="position-relative">
+    <form action="/quote" method="post">
+        <div class="mb-3">
+            <input autocomplete="off" autofocus class="form-control mx-auto w-auto" id="symbol" name="symbol"
+                placeholder="Enter Symbol" type="text">
+        </div>
+        <button class="btn btn-primary" type="submit">Search</button>
+    </form>
+
+{% if data %}
+<form action="/buy" method="post">
+    <input value="{{data['symbol']}}" hidden name="name">
+    <div class="card start-50" style="width: 18rem;transform: translate(-50%,0%)!important;margin-top:5%">
+        <div class="card-body">
+            <h5 class="card-title" name="name">{{data['symbol']}}</h5>
+        </div>
+        <ul class="list-group list-group-flush">
+            <li class="list-group-item"><b>Name: </b>{{ data['name'] }}</li>
+            <li class="list-group-item"><b>Price: </b>{{ data['price'] }}</li>
+        </ul>
+        <div class="card-body">
+            <button type="submit" class="btn btn-primary">Buy these</button>
+        </div>
+    </div>
+    </form>
+</div>
+{% endif %}
+{% endblock %}
