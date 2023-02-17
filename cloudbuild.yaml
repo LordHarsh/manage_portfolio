@@ -1,0 +1,5 @@
+steps:
+- name: 'gcr.io/cloud-builders/git'
+  args: ['submodule', 'update', '--init']
+- name: 'gcr.io/cloud-builders/gcloud'
+  args: ['app', 'deploy']
