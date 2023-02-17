@@ -2,4 +2,7 @@ steps:
 - name: 'gcr.io/cloud-builders/git'
   args: ['submodule', 'update', '--init']
 - name: 'gcr.io/cloud-builders/gcloud'
-  args: ['app', 'deploy']
+  args: ["app", "deploy", "--project=${PROJECT_ID}", "--version=${SHORT_SHA}", "app.yaml"]
+  env:
+    - "PROJECT_ID=portfolio-manager-1121"
+    - "SHORT_SHA=${SHORT_SHA}"
