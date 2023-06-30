@@ -21,7 +21,7 @@ app.jinja_env.filters["usd"] = usd
 # Configure session to use filesystem (instead of signed cookies)
 secret_key = secrets.token_hex(16)
 app = Flask(__name__)
-app.config['SECRET_KEY'] = "dbkjnskjnkgnsk"
+app.config['SECRET_KEY'] = os.environ.get('SECRET')
 
 app.config['REDIS_URL'] = os.environ.get('KV_URL')
 redis_store = FlaskRedis(app)
