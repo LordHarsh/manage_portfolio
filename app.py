@@ -1,14 +1,16 @@
 import os
-from cs50 import SQL
+import psycopg2
 from flask import Flask, flash, redirect, render_template, request, session
 from flask_session import Session
 from tempfile import mkdtemp
+from aiohttp_jinja2 import render_template_async
+
 from werkzeug.security import check_password_hash, generate_password_hash
 from helpers import apology, login_required, lookup, usd
 
-# Configure application 
+# Configure application
 app = Flask(__name__)
-app.debug = False
+# app.debug = False
 
 # Custom filter
 app.jinja_env.filters["usd"] = usd
@@ -18,12 +20,19 @@ app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
 Session(app)
 
-# Configure CS50 Library to use SQLite database
-db = SQL("sqlite:///finance.db")
+# Database connection details
 
-# Make sure API key is set
-#if not os.environ.get("API_KEY"):
-#    raise RuntimeError("API_KEY not set")
+# Establish a connection to the PostgreSQL database
+
+
+def connect_db():
+    return psycopg2.connect(
+        host=os.environ.get("host"),
+        database=os.environ.get("database"),
+        user=os.environ.get("user"),
+        password=os.environ.get("password"),
+        sslmode='require'
+    )
 
 
 @app.after_request
@@ -39,21 +48,49 @@ def after_request(response):
 @login_required
 def index():
     """Show portfolio of stocks"""
-    db.execute("CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, user_id INTEGER NOT NULL, symbol TEXT NOT NULL, quantity INTEGER NOT NULL, amount NUMERIC NOT NULL, type TEXT NOT NULL, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
-    db.execute("CREATE TABLE IF NOT EXISTS stocks (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, symbol TEXT NOT NULL, user_id INTEGER NOT NULL, quantity INTEGER NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
+    conn = connect_db()
+    cur = conn.cursor()
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT NOT NULL,
+        hash TEXT NOT NULL,
+        cash NUMERIC NOT NULL DEFAULT 10000.00
+    )
+""")
+    cur.execute("CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, symbol TEXT NOT NULL, quantity INTEGER NOT NULL, amount NUMERIC NOT NULL, type TEXT NOT NULL, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
+    cur.execute("CREATE TABLE IF NOT EXISTS stocks (id SERIAL PRIMARY KEY, symbol TEXT NOT NULL, user_id INTEGER NOT NULL, quantity INTEGER NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
     user_id = session['user_id']
-    name = db.execute("SELECT username FROM users WHERE id=?", user_id)[
-        0]['username']
-    data = db.execute("SELECT * FROM stocks WHERE user_id=?", user_id)
-    cash = db.execute("SELECT cash FROM users WHERE id=?", user_id)[0]['cash']
+    cur.execute("SELECT username FROM users WHERE id=%s", (user_id,))
+    user_name = cur.fetchone()[0]
+    cur.execute("SELECT * FROM stocks WHERE user_id=%s", (user_id,))
+    data = cur.fetchall()
+    cur.execute("SELECT cash FROM users WHERE id=%s", (user_id,))
+    cash = cur.fetchone()[0]
+    conn.close()
     total = cash
+    data2 = []
+    print(data)
     for row in data:
-        d = lookup(row['symbol'])
-        total += d['price'] * row['quantity']
-        row['name'] = d['name']
-        row['price'] = usd(d['price'])
-        row['amount'] = usd(d['price'] * row['quantity'])
-    return render_template("index.html", name=name.title(), data=data, cash=usd(cash), total=usd(total))
+        symbol = row[1]  # Assuming the "symbol" column is at index 1
+        quantity = row[3]  # Assuming the "quantity" column is at index 3
+        print(symbol)
+        d = lookup(symbol)
+        print(d)
+        if not d:
+            continue
+        price = d.get('price')
+        name = d.get('name')
+        amount = price * quantity
+        row = {
+            'symbol': symbol,
+            'name': name,
+            'quantity': quantity,
+            'price': usd(price),
+            'amount': usd(amount)
+        }
+        data2.append(row)
+    return render_template("index.html", name=user_name.title(), data=data2, cash=usd(cash), total=usd(total))
 
 
 @app.route("/buy", methods=["GET", "POST"])
@@ -63,7 +100,9 @@ def buy():
     if request.method == "POST":
         if request.form.get('name') != None:
             return redirect('/buy?name='+request.form.get('name'))
-        db.execute("CREATE TABLE IF NOT EXISTS stocks (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, symbol TEXT NOT NULL, user_id INTEGER NOT NULL, quantity INTEGER NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
+        conn = connect_db()
+        cursor = conn.cursor()
+        cursor.execute("CREATE TABLE IF NOT EXISTS stocks (id SERIAL PRIMARY KEY, symbol TEXT NOT NULL, user_id INTEGER NOT NULL, quantity INTEGER NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
         user_id = session['user_id']
         symbol = request.form.get('symbol')
         quan = request.form.get("shares")
@@ -74,30 +113,41 @@ def buy():
         except:
             return apology("Re-enter Quantity", 400)
         data = lookup(symbol)
+        print(symbol, quan, data)
         if not data:
             return apology("Re-enter Symbol", 400)
         if quan % 1 != 0 or quan <= 0:
             return apology("Re-enter Quantity", 400)
-        amt = data['price'] * quan
-        current_cash = db.execute(
-            "SELECT cash FROM users WHERE id=?", user_id)[0]['cash']
+        amt = data.get('price') * quan
+        cursor.execute("SELECT cash FROM users WHERE id=%s", (user_id,))
+        current_cash = cursor.fetchone()[0]
         if amt > current_cash:
             return apology("Insufficient Cash", 400)
-        if not db.execute("SELECT * FROM stocks where symbol=? AND user_id=?", data['symbol'], user_id):
-            db.execute("INSERT INTO stocks (symbol, user_id, quantity) values(?, ?, ?)",
-                       data['symbol'], user_id, int(quan))
+        cursor.execute(
+            "SELECT * FROM stocks WHERE symbol=%s AND user_id=%s", (data['symbol'], user_id))
+        if cursor.rowcount == 0:
+            cursor.execute("INSERT INTO stocks (symbol, user_id, quantity) values(%s, %s, %s)",
+                           (data['symbol'], user_id, int(quan)))
         else:
-            db.execute("UPDATE stocks SET quantity=quantity+? WHERE symbol=? AND user_id=?",
-                       int(quan), data['symbol'], user_id)
-        db.execute("UPDATE users SET cash = cash-? WHERE id=?", amt, user_id)
-        db.execute("INSERT INTO history (user_id, symbol, quantity, amount, type) values(?, ?, ?, ?, ?)",
-                   user_id, data['symbol'], quan, amt, 'buy')
+            cursor.execute("UPDATE stocks SET quantity=quantity+%s WHERE symbol=%s AND user_id=%s",
+                           (int(quan), data['symbol'], user_id))
+        cursor.execute(
+            "UPDATE users SET cash = cash-%s WHERE id=%s", (amt, user_id))
+        cursor.execute("CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, symbol TEXT NOT NULL, quantity INTEGER NOT NULL, amount NUMERIC NOT NULL, type TEXT NOT NULL, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
+
+        cursor.execute("INSERT INTO history (user_id, symbol, quantity, amount, type) values(%s, %s, %s, %s, %s)",
+                       (user_id, data['symbol'], quan, amt, 'buy'))
+        conn.commit()
+        conn.close()
         return redirect('/')
     elif request.method == "GET":
         name = str(request.args.get('name'))
         user_id = session['user_id']
-        current_cash = db.execute(
-            "SELECT cash FROM users WHERE id=?", user_id)[0]['cash']
+        conn = connect_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT cash FROM users WHERE id=%s", (user_id,))
+        current_cash = cursor.fetchone()[0]
+        conn.close()
         return render_template("buy.html", name=name, cash=usd(current_cash))
     return apology("TODO", 400)
 
@@ -105,9 +155,10 @@ def buy():
 @app.route("/getprice", methods=["POST"])
 @login_required
 def get_price():
-    """Get price a a share"""
+    """Get price of a share"""
     if request.method == "POST":
         sym = request.form.get("symbol")
+        print(sym)
         data = lookup(sym)
         if not data:
             return "Wrong Symbol"
@@ -117,24 +168,24 @@ def get_price():
 @app.route("/getamount", methods=["POST"])
 @login_required
 def get_amount():
-    """Get price a a share"""
+    """Get amount for a given price and quantity"""
     if request.method == "POST":
         price = request.form.get("price")
         price = price[1:]
         quan = request.form.get("quan")
-        amt = float(price)*float(quan)
+        amt = float(price) * float(quan)
         return usd(amt)
 
 
 @app.route("/getamountfromsymbol", methods=["POST"])
 @login_required
 def get_amount2():
-    """Get price a a share"""
+    """Get amount for a given symbol and quantity"""
     if request.method == "POST":
         symbol = request.form.get("symbol")
         quantity = request.form.get("quantity")
-        price = dict(lookup(symbol)).get('price')
-        amt = float(price)*float(quantity)
+        price = lookup(symbol)['price']
+        amt = float(price) * float(quantity)
         return usd(amt)
 
 
@@ -143,11 +194,26 @@ def get_amount2():
 def history():
     """Show history of transactions"""
     if request.method == 'GET':
-        data = db.execute(
-            "SELECT * FROM history WHERE user_id=? ORDER BY id DESC", session['user_id'])
+        conn = connect_db()
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, symbol TEXT NOT NULL, quantity INTEGER NOT NULL, amount NUMERIC NOT NULL, type TEXT NOT NULL, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
+        cur.execute(
+            "SELECT * FROM history WHERE user_id=%s ORDER BY id DESC", (session['user_id'],))
+        data = cur.fetchall()
+        cur.close()
+        conn.close()
+        data2 = []
         for row in data:
-            row['amount'] = usd(row['amount'])
-        return render_template('history.html', data=data)
+            data2.append({
+                "id": row[0],
+                "user_id": row[1],
+                "symbol": row[2],
+                "quantity": row[3],
+                "amount": usd(row[4]),
+                "type": row[5],
+                "time": row[6]
+            })
+        return render_template('history.html', data=data2)
     return apology("Only Get")
 
 
@@ -170,15 +236,20 @@ def login():
             return apology("must provide password", 403)
 
         # Query database for username
-        rows = db.execute("SELECT * FROM users WHERE username = ?",
-                          request.form.get("username"))
+        conn = connect_db()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE username = %s",
+                    (request.form.get("username"),))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
 
         # Ensure username exists and password is correct
-        if len(rows) != 1 or not check_password_hash(rows[0]["hash"], request.form.get("password")):
+        if len(rows) != 1 or not check_password_hash(rows[0][2], request.form.get("password")):
             return apology("invalid username and/or password", 403)
 
         # Remember which user has logged in
-        session["user_id"] = rows[0]["id"]
+        session["user_id"] = rows[0][0]
 
         # Redirect user to home page
         return redirect("/")
@@ -225,7 +296,13 @@ def register():
         username = request.form.get("username")
         if not username:
             return apology("must provide username", 400)
-        if len(db.execute("SELECT username FROM users where username=?", (username))) != 0:
+        conn = connect_db()
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, username TEXT NOT NULL, hash TEXT NOT NULL, cash NUMERIC NOT NULL DEFAULT 10000.0)")
+        cur.execute("SELECT username FROM users WHERE username=%s", (username,))
+        if len(cur.fetchall()) != 0:
+            cur.close()
+            conn.close()
             return apology("username exists", 400)
 
         password = request.form.get("password")
@@ -237,8 +314,13 @@ def register():
             return apology("must re-enter password", 400)
         if password != password2:
             return apology("passwords does not match :(", 400)
-        db.execute("INSERT INTO users (username, hash) values(?, ?)",
-                   username, generate_password_hash(password))
+
+        hashed_password = generate_password_hash(password)
+        cur.execute("INSERT INTO users (username, hash) VALUES (%s, %s)",
+                    (username, hashed_password))
+        conn.commit()
+        cur.close()
+        conn.close()
         return redirect("/")
     return apology("ONLY GET OR POST")
 
@@ -253,31 +335,75 @@ def sell():
         if not quantity:
             return apology("Quantity Required")
         quantity = int(quantity)
-        price = dict(lookup(symbol)).get('price')
+        print(symbol, quantity)
+        price = lookup(symbol).get('price')
         amt = float(price)*float(quantity)
         user_id = session['user_id']
-        current_quan = db.execute(
-            "SELECT quantity FROM stocks WHERE symbol=? AND user_id=?", symbol, user_id)
+        conn = connect_db()
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS history (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, symbol TEXT NOT NULL, quantity INTEGER NOT NULL, amount NUMERIC NOT NULL, type TEXT NOT NULL, time TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL, FOREIGN KEY (user_id) REFERENCES users(id))")
+
+        cur.execute(
+            "SELECT quantity FROM stocks WHERE symbol=%s AND user_id=%s", (symbol, user_id))
+        current_quan = cur.fetchone()
         if not current_quan:
+            cur.close()
+            conn.close()
             return apology("Wrong Symbol Selected", 400)
-        if current_quan[0]['quantity'] < quantity:
+        if current_quan[0] < quantity:
+            cur.close()
+            conn.close()
             return apology("Insufficient Stocks", 400)
-        elif current_quan[0]['quantity'] == quantity:
-            db.execute(
-                "DELETE FROM stocks WHERE symbol=? AND user_id=?", symbol, user_id)
-            db.execute("UPDATE users SET cash=cash+? WHERE id=?", amt, user_id)
+        elif current_quan[0] == quantity:
+            cur.execute(
+                "DELETE FROM stocks WHERE symbol=%s AND user_id=%s", (symbol, user_id))
+            cur.execute(
+                "UPDATE users SET cash=cash+%s WHERE id=%s", (amt, user_id))
         else:
-            db.execute(
-                "UPDATE stocks SET quantity=quantity-? WHERE symbol=? AND user_id=?", quantity, symbol, user_id)
-            db.execute("UPDATE users SET cash=cash+? WHERE id=?", amt, user_id)
-        db.execute("INSERT INTO history (user_id, symbol, quantity, amount, type) values(?, ?, ?, ?, ?)",
-                   user_id, symbol, quantity, amt, 'sell')
+            cur.execute("UPDATE stocks SET quantity=quantity-%s WHERE symbol=%s AND user_id=%s",
+                        (quantity, symbol, user_id))
+            cur.execute(
+                "UPDATE users SET cash=cash+%s WHERE id=%s", (amt, user_id))
+        cur.execute("INSERT INTO history (user_id, symbol, quantity, amount, type) VALUES (%s, %s, %s, %s, %s)",
+                    (user_id, symbol, quantity, amt, 'sell'))
+        conn.commit()
+        cur.close()
+        conn.close()
         return redirect("/")
     elif request.method == 'GET':
         user_id = session['user_id']
-        current_cash = db.execute(
-            "SELECT cash FROM users WHERE id=?", user_id)[0]['cash']
-        current_stocks = db.execute(
-            "SELECT symbol, quantity FROM stocks WHERE user_id=?", user_id)
-        return render_template("sell.html", cash=usd(current_cash), stocks=current_stocks)
+        conn = connect_db()
+        cur = conn.cursor()
+        cur.execute("SELECT cash FROM users WHERE id=%s", (user_id,))
+        current_cash = cur.fetchone()[0]
+        cur.execute(
+            "SELECT symbol, quantity FROM stocks WHERE user_id=%s", (user_id,))
+        current_stocks = cur.fetchall()
+        print(current_stocks)
+        current_stocks_list = []
+        for i, row in enumerate(current_stocks):
+            current_stocks_list.append({
+                "symbol": current_stocks[i][0],
+                "quantity": current_stocks[i][1]
+            })
+
+        print(current_stocks_list)
+        cur.close()
+        conn.close()
+        return render_template("sell.html", cash=usd(current_cash), stocks=current_stocks_list)
     return apology("TODO")
+
+# Rest of the code...
+
+
+# Close the cursor and connection after the request
+# @app.teardown_request
+# def teardown_request(exception):
+#     if cur:
+#         cur.close()
+#     if conn:
+#         conn.close()
+
+
+if __name__ == '__main__':
+    app.run()

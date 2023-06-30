@@ -39,23 +39,20 @@ def login_required(f):
 def lookup(symbol):
     """Look up quote for symbol."""
 
-    # Contact API
     try:
-        #api_key = os.environ.get("API_KEY")
+        # Contact API
+        api_key = os.environ.get("api_key")
+        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={api_key}"
+        url2 = f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={symbol}&apikey={api_key}"
+        response = requests.get(url)
+        d = response.json()
+        quote = d['Global Quote']
+        print(quote)
         #url = f"https://cloud.iexapis.com/stable/stock/{urllib.parse.quote_plus(symbol)}/quote?token={api_key}"
         #response = requests.get(url)
-        url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
+        #url = f'https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}'
 
-    except requests.RequestException:
-        return None
-
-    # Parse response
-    try:
+        # Parse response
         #quote = response.json()
         # return {
         #     "name": quote["companyName"],
@@ -63,14 +60,17 @@ def lookup(symbol):
         #     "symbol": quote["symbol"]
         # }
 
-        d = json.loads(response.text)
-        quote = d['quoteResponse']['result'][0]
+        response2 = requests.get(url2)
+        d2 = response2.json()
+        print(d2)
+        print("Lookup success")
         return {
-            "name": quote["longName"],
-            "price": float(quote["regularMarketPrice"]),
-            "symbol": quote["symbol"]
+            "name": d2["Name"] + " " + d2["Exchange"],
+            "price": float(quote["05. price"]),
+            "symbol": quote["01. symbol"]
         }
     except (KeyError, TypeError, ValueError):
+        print ("Error in lookup")
         return None
 
 
