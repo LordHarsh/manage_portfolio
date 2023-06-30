@@ -5,6 +5,9 @@ from flask import Flask, flash, redirect, render_template, request, session
 from flask_session import Session
 from tempfile import mkdtemp
 
+import secrets
+
+
 from werkzeug.security import check_password_hash, generate_password_hash
 from helpers import apology, login_required, lookup, usd
 
@@ -16,16 +19,17 @@ app = Flask(__name__)
 app.jinja_env.filters["usd"] = usd
 
 # Configure session to use filesystem (instead of signed cookies)
-app.config['REDIS_URL'] = os.environ.get('KV_URL')
+secret_key = secrets.token_hex(16)
+app = Flask(__name__)
+app.config['SECRET_KEY'] = "dbkjnskjnkgnsk"
 
-redis = FlaskRedis(app)
-app.session_interface = redis
+app.config['REDIS_URL'] = os.environ.get('KV_URL')
+redis_store = FlaskRedis(app)
+app.session_interface.redis = redis_store
+
 
 # Database connection details
-
 # Establish a connection to the PostgreSQL database
-
-
 def connect_db():
     return psycopg2.connect(os.environ.get("POSTGRES_URL"))
 
