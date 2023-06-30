@@ -1,4 +1,5 @@
 import os
+from flask_redis import FlaskRedis
 import psycopg2
 from flask import Flask, flash, redirect, render_template, request, session
 from flask_session import Session
@@ -16,9 +17,10 @@ app = Flask(__name__)
 app.jinja_env.filters["usd"] = usd
 
 # Configure session to use filesystem (instead of signed cookies)
-app.config["SESSION_PERMANENT"] = False
-app.config["SESSION_TYPE"] = "filesystem"
-Session(app)
+app.config['REDIS_URL'] = os.environ.get['KV_URL']
+
+redis = FlaskRedis(app)
+app.session_interface = redis
 
 # Database connection details
 
